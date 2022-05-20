@@ -10,8 +10,8 @@ use sui::{
 use sui_config::{NetworkConfig, PersistedConfig};
 use sui_core::authority::AuthorityState;
 
-use sui_types::object::Owner;
 use sui_node::FullNode;
+use sui_types::object::Owner;
 use sui_types::{
     base_types::{ObjectID, SuiAddress, TransactionDigest},
     batch::UpdateItem,
