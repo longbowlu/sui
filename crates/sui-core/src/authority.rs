@@ -205,6 +205,8 @@ pub struct AuthorityState {
 
     indexes: Option<Arc<IndexStore>>,
 
+    // // #[cfg(feature = "event")]
+    // event_manager: Option<Arc<EventManager>>,
     /// The checkpoint store
     pub(crate) _checkpoints: Option<Arc<Mutex<CheckpointStore>>>,
 
@@ -675,6 +677,7 @@ impl AuthorityState {
         secret: StableSyncAuthoritySigner,
         store: Arc<AuthorityStore>,
         indexes: Option<Arc<IndexStore>>,
+        // event_handler: Option<Arc<IndexStore>>,
         checkpoints: Option<Arc<Mutex<CheckpointStore>>>,
         genesis: &Genesis,
     ) -> Self {

@@ -14,6 +14,8 @@ use sui_gateway::read_api::{FullNodeApi, ReadApi};
 use sui_storage::IndexStore;
 use tracing::info;
 
+pub mod event_manager;
+
 // TODO extract the important bits from AuthorityServer and FullNode so that we can have a single
 // unified node. See https://github.com/MystenLabs/sui/issues/2068 for more info.
 pub struct SuiNode;
