@@ -26,7 +26,6 @@ use sui_gateway::api::RpcTransactionBuilderClient;
 use sui_gateway::api::{SuiRpcModule, TransactionBytes};
 use sui_gateway::json_rpc::sui_rpc_doc;
 use sui_gateway::read_api::{FullNodeApi, ReadApi};
-use sui_gateway::rpc_gateway::responses::ObjectResponse;
 use sui_gateway::rpc_gateway::{GatewayReadApiImpl, RpcGatewayImpl, TransactionBuilderImpl};
 use sui_json::SuiJsonValue;
 use sui_types::base_types::{ObjectID, SuiAddress};
@@ -118,7 +117,7 @@ async fn create_response_sample() -> Result<
     (
         ObjectResponseSample,
         TransactionResponseSample,
-        BTreeMap<SuiAddress, Vec<SuiObjectRef>>,
+        BTreeMap<SuiAddress, Vec<SuiObjectInfo>>,
     ),
     anyhow::Error,
 > {
@@ -152,8 +151,11 @@ async fn create_response_sample() -> Result<
     let mut owned_objects = BTreeMap::new();
     for account in network.accounts {
         network.http_client.sync_account_state(account).await?;
-        let object: ObjectResponse = network.http_client.get_owned_objects(account).await?;
-        owned_objects.insert(account, object.objects);
+        let objects: Vec<SuiObjectInfo> = network
+            .http_client
+            .get_objects_owned_by_address(account)
+            .await?;
+        owned_objects.insert(account, objects);
     }
 
     let objects = ObjectResponseSample {

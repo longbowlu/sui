@@ -8,10 +8,8 @@ use sui_core::gateway_types::{
     GetObjectDataResponse, TransactionEffectsResponse, TransactionResponse,
 };
 use sui_framework::build_move_package_to_bytes;
-use sui_gateway::{
-    api::{RpcGatewayApiClient, RpcReadApiClient, RpcTransactionBuilderClient, TransactionBytes},
-    rpc_gateway::responses::ObjectResponse,
-    rpc_gateway::RpcGatewayImpl,
+use sui_gateway::api::{
+    RpcGatewayApiClient, RpcReadApiClient, RpcTransactionBuilderClient, TransactionBytes,
 };
 use sui_json::SuiJsonValue;
 use sui_types::sui_serde::Base64;
