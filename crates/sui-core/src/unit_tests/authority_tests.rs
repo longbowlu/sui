@@ -1254,6 +1254,14 @@ async fn test_change_epoch_transaction() {
         authority_state.name,
         &*authority_state.secret,
     );
+    // Make sure that the raw transaction will never be accepted by the validator.
+    assert_eq!(
+        authority_state
+            .handle_transaction(signed_tx.clone().to_transaction())
+            .await
+            .unwrap_err(),
+        SuiError::InvalidSystemTransaction
+    );
     let mut builder = SignatureAggregator::try_new(
         signed_tx.clone().to_transaction(),
         &authority_state.committee,
@@ -1270,7 +1278,6 @@ async fn test_change_epoch_transaction() {
         .handle_confirmation_transaction(ConfirmationTransaction::new(certificate))
         .await
         .unwrap();
-    println!("{:?}", result);
     assert!(result.signed_effects.unwrap().effects.status.is_ok());
     let sui_system_object = authority_state
         .get_object(&SUI_SYSTEM_STATE_OBJECT_ID)
