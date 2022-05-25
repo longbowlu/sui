@@ -1,46 +1,30 @@
 // Copyright (c) 2022, Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use jsonrpsee::{
-    http_client::{HttpClient, HttpClientBuilder},
-    http_server::{HttpServerBuilder, HttpServerHandle},
-};
-use jsonrpsee_core::server::rpc_module::RpcModule;
-use std::{
-    net::SocketAddr,
-    path::{Path, PathBuf},
-    str::FromStr,
-};
-use sui::{
-    config::{PersistedConfig, WalletConfig, SUI_GATEWAY_CONFIG, SUI_WALLET_CONFIG},
-    keystore::{Keystore, SuiKeystore},
-    sui_commands::SuiNetwork,
-};
+use std::{path::Path, str::FromStr};
+use sui::keystore::{Keystore, SuiKeystore};
 use sui_core::gateway_state::GatewayTxSeqNumber;
 use sui_core::gateway_types::{
     GetObjectDataResponse, TransactionEffectsResponse, TransactionResponse,
 };
 use sui_framework::build_move_package_to_bytes;
-use sui_gateway::rpc_gateway::{create_client, GatewayReadApiImpl, TransactionBuilderImpl};
 use sui_gateway::{
-    api::{
-        RpcGatewayApiClient, RpcGatewayApiServer, RpcReadApiClient, RpcReadApiServer,
-        RpcTransactionBuilderClient, RpcTransactionBuilderServer, TransactionBytes,
-    },
+    api::{RpcGatewayApiClient, RpcReadApiClient, RpcTransactionBuilderClient, TransactionBytes},
+    rpc_gateway::responses::ObjectResponse,
     rpc_gateway::RpcGatewayImpl,
 };
 use sui_json::SuiJsonValue;
 use sui_types::sui_serde::Base64;
 use sui_types::{
-    base_types::{ObjectID, SuiAddress, TransactionDigest},
+    base_types::{ObjectID, TransactionDigest},
     SUI_FRAMEWORK_ADDRESS,
 };
 
-use test_utils::network::start_test_network;
+use test_utils::network::start_rpc_test_network;
 
 #[tokio::test]
 async fn test_get_objects() -> Result<(), anyhow::Error> {
-    let test_network = setup_test_network().await?;
+    let test_network = start_rpc_test_network(None).await?;
     let http_client = test_network.http_client;
     let address = test_network.accounts.first().unwrap();
 
@@ -52,7 +36,7 @@ async fn test_get_objects() -> Result<(), anyhow::Error> {
 
 #[tokio::test]
 async fn test_transfer_coin() -> Result<(), anyhow::Error> {
-    let test_network = setup_test_network().await?;
+    let test_network = start_rpc_test_network(None).await?;
     let http_client = test_network.http_client;
     let address = test_network.accounts.first().unwrap();
     http_client.sync_account_state(*address).await?;
@@ -88,7 +72,7 @@ async fn test_transfer_coin() -> Result<(), anyhow::Error> {
 
 #[tokio::test]
 async fn test_publish() -> Result<(), anyhow::Error> {
-    let test_network = setup_test_network().await?;
+    let test_network = start_rpc_test_network(None).await?;
     let http_client = test_network.http_client;
     let address = test_network.accounts.first().unwrap();
     http_client.sync_account_state(*address).await?;
@@ -126,7 +110,7 @@ async fn test_publish() -> Result<(), anyhow::Error> {
 
 #[tokio::test]
 async fn test_move_call() -> Result<(), anyhow::Error> {
-    let test_network = setup_test_network().await?;
+    let test_network = start_rpc_test_network(None).await?;
     let http_client = test_network.http_client;
     let address = test_network.accounts.first().unwrap();
     http_client.sync_account_state(*address).await?;
@@ -174,7 +158,7 @@ async fn test_move_call() -> Result<(), anyhow::Error> {
 
 #[tokio::test]
 async fn test_get_object_info() -> Result<(), anyhow::Error> {
-    let test_network = setup_test_network().await?;
+    let test_network = start_rpc_test_network(None).await?;
     let http_client = test_network.http_client;
     let address = test_network.accounts.first().unwrap();
     http_client.sync_account_state(*address).await?;
@@ -191,7 +175,7 @@ async fn test_get_object_info() -> Result<(), anyhow::Error> {
 
 #[tokio::test]
 async fn test_get_transaction() -> Result<(), anyhow::Error> {
-    let test_network = setup_test_network().await?;
+    let test_network = start_rpc_test_network(None).await?;
     let http_client = test_network.http_client;
     let address = test_network.accounts.first().unwrap();
 
@@ -252,43 +236,4 @@ async fn test_get_transaction() -> Result<(), anyhow::Error> {
     }
 
     Ok(())
-}
-
-async fn setup_test_network() -> Result<TestNetwork, anyhow::Error> {
-    let working_dir = tempfile::tempdir()?.path().to_path_buf();
-    let _network = start_test_network(&working_dir, None).await?;
-    let (server_addr, rpc_server_handle) =
-        start_rpc_gateway(&working_dir.join(SUI_GATEWAY_CONFIG)).await?;
-    let wallet_conf: WalletConfig = PersistedConfig::read(&working_dir.join(SUI_WALLET_CONFIG))?;
-    let http_client = HttpClientBuilder::default().build(format!("http://{}", server_addr))?;
-    Ok(TestNetwork {
-        _network,
-        _rpc_server: rpc_server_handle,
-        accounts: wallet_conf.accounts,
-        http_client,
-        working_dir,
-    })
-}
-
-struct TestNetwork {
-    _network: SuiNetwork,
-    _rpc_server: HttpServerHandle,
-    accounts: Vec<SuiAddress>,
-    http_client: HttpClient,
-    working_dir: PathBuf,
-}
-
-async fn start_rpc_gateway(
-    config_path: &Path,
-) -> Result<(SocketAddr, HttpServerHandle), anyhow::Error> {
-    let server = HttpServerBuilder::default().build("127.0.0.1:0").await?;
-    let addr = server.local_addr()?;
-    let client = create_client(config_path)?;
-    let mut module = RpcModule::new(());
-    module.merge(RpcGatewayImpl::new(client.clone()).into_rpc())?;
-    module.merge(GatewayReadApiImpl::new(client.clone()).into_rpc())?;
-    module.merge(TransactionBuilderImpl::new(client.clone()).into_rpc())?;
-
-    let handle = server.start(module)?;
-    Ok((addr, handle))
 }
