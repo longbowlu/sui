@@ -67,7 +67,7 @@ const TRANSACTION_SAMPLE_FILE_PATH: &str = concat!(
 
 const OWNED_OBJECT_SAMPLE_FILE_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../sui-open-rpc/samples/owned_object.json",
+    "/../sui-open-rpc/samples/owned_objects.json",
 );
 
 #[tokio::main]
