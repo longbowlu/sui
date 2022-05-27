@@ -232,6 +232,7 @@ where
                         // Upon receiving a transaction digest, store it if it is not processed already.
                         Some(Ok(BatchInfoResponseItem(UpdateItem::Transaction((seq, digest))))) => {
                             if !self.state.database.effects_exists(&digest)? {
+                                debug!("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ peer_gossip_for_duration NOT EXIST!");
                                 queue.push(async move {
                                     tokio::time::sleep(Duration::from_millis(EACH_ITEM_DELAY_MS)).await;
                                     digest
@@ -262,6 +263,7 @@ where
                     if !self.state.database.effects_exists(&digest)? {
                         // Download the certificate
                         let response = self.client.handle_transaction_info_request(TransactionInfoRequest::from(digest)).await?;
+                        debug!("@@@@@@@@@@ peer_gossip_for_duration");
                         self.process_response(response).await?;
                     }
                 }
@@ -274,6 +276,7 @@ where
         if let Some(certificate) = response.certified_transaction {
             // Process the certificate from one authority to ourselves
             // Process the certificate from one authority to ourselves
+            debug!("@@@@@@@@@@ process_response");
             self.aggregator
                 .sync_authority_source_to_destination(
                     ConfirmationTransaction { certificate },

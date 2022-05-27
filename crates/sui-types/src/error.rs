@@ -269,6 +269,8 @@ pub enum SuiError {
     AuthorityInformationUnavailable,
     #[error("Failed to update authority.")]
     AuthorityUpdateFailure,
+    #[error("AuthorityState has been dropped.")]
+    AuthorityStateDropped,
     #[error(
         "We have received cryptographic level of evidence that authority {authority:?} is faulty in a Byzantine manner."
     )]

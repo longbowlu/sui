@@ -1,6 +1,7 @@
 // Copyright (c) 2021, Facebook, Inc. and its affiliates
 // Copyright (c) 2022, Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
+use move_bytecode_utils::{layout::TypeLayoutBuilder, module_cache::GetModule};
 
 use crate::{
     authority_batch::{BroadcastReceiver, BroadcastSender},
@@ -14,12 +15,13 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use itertools::Itertools;
 use move_binary_format::CompiledModule;
-use move_bytecode_utils::module_cache::ModuleCache;
+use move_bytecode_utils::module_cache::{ModuleCache, SyncModuleCache};
 use move_core_types::{
     account_address::AccountAddress,
     ident_str,
-    language_storage::{ModuleId, StructTag},
+    language_storage::{ModuleId, StructTag, TypeTag},
     resolver::{ModuleResolver, ResourceResolver},
+    value::{MoveStruct, MoveTypeLayout},
 };
 use move_vm_runtime::{move_vm::MoveVM, native_functions::NativeFunctionTable};
 use narwhal_executor::{ExecutionIndices, ExecutionState};
@@ -34,12 +36,14 @@ use std::{
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc,
+        Weak,
     },
 };
 use sui_adapter::adapter;
 use sui_config::genesis::Genesis;
 use sui_storage::IndexStore;
 use sui_types::{
+    event::Event,
     base_types::*,
     batch::{TxSequenceNumber, UpdateItem},
     committee::Committee,
@@ -183,6 +187,8 @@ pub static METRICS: Lazy<AuthorityMetrics> = Lazy::new(AuthorityMetrics::new);
 pub type StableSyncAuthoritySigner =
     Pin<Arc<dyn signature::Signer<AuthoritySignature> + Send + Sync>>;
 
+struct WeakWrapper<T>(Weak<T>);
+
 pub struct AuthorityState {
     // Fixed size, static, identity of the authority
     /// The name of this authority.
@@ -204,6 +210,8 @@ pub struct AuthorityState {
     pub(crate) database: Arc<AuthorityStore>, // TODO: remove pub
 
     indexes: Option<Arc<IndexStore>>,
+
+    module_cache: Option<SyncModuleCache<WeakWrapper<AuthorityState>>>,
 
     // // #[cfg(feature = "event")]
     // event_manager: Option<Arc<EventManager>>,
@@ -306,17 +314,20 @@ impl AuthorityState {
         &self,
         confirmation_transaction: ConfirmationTransaction,
     ) -> SuiResult<TransactionInfoResponse> {
+        debug!("@@@@@@@@@@ handle_confirmation_transaction");
         self.metrics.total_certs.inc();
         let transaction_digest = *confirmation_transaction.certificate.digest();
 
         // Ensure an idempotent answer.
         if self.database.effects_exists(&transaction_digest)? {
+            debug!("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ EXIST!");
             let info = self.make_transaction_info(&transaction_digest).await?;
             debug!("Transaction {transaction_digest:?} already executed");
             return Ok(info);
         }
 
         // Check the certificate and retrieve the transfer data.
+        debug!("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ NOT EXIST!");
         tracing::trace_span!("cert_check_signature")
             .in_scope(|| confirmation_transaction.certificate.verify(&self.committee))
             .map_err(|e| {
@@ -461,6 +472,13 @@ impl AuthorityState {
         self.update_state(temporary_store, &certificate, &signed_effects)
             .await?;
 
+        // Each certificate only reaches here once
+
+        debug!("@@@@@@@@@@@@@ EFFECTS!!!  {:?}", &signed_effects.effects);
+        let resolver = ModuleCache::new(&self);
+        for e in &signed_effects.effects.events {
+            self.convert_event(e,  &resolver);
+        }
         Ok(TransactionInfoResponse {
             signed_transaction: self.database.get_transaction(&transaction_digest)?,
             certified_transaction: Some(certificate),
@@ -468,6 +486,46 @@ impl AuthorityState {
         })
     }
 
+    pub fn convert_event(&self, event: &Event, resolver: &ModuleCache<&&AuthorityState>) {
+        debug!("@@@@@@@@@@@@@ event : {:?}", event);
+        let typestruct = TypeTag::Struct(event.type_.clone());
+        let layout =
+            TypeLayoutBuilder::build_with_fields(&typestruct, resolver).map_err(|e| {
+                SuiError::ObjectSerializationError {
+                    error: e.to_string(),
+                }
+            }).expect("Can't get layout");
+        match layout {
+            MoveTypeLayout::Struct(l) => {
+                let s = MoveStruct::simple_deserialize(&event.contents, &l).map_err(|e| {
+                    SuiError::ObjectSerializationError {
+                        error: e.to_string(),
+                    }
+                }).expect("Can't get struct");
+                if let MoveStruct::WithFields(fields) = &s {
+                    for (i, v) in fields {
+                        let i_str = format!("{}", i);
+                        let v_str = format!("{}", v);
+                        debug!("@@@@@@@@@@@@@ identifier: {} ", i_str);
+                        debug!("@@@@@@@@@@@@@ move value: {} ", v_str);
+                        // format!("{}", a_type_tag)
+                    }
+                }
+                let json_v = serde_json::to_value(&s).map_err(|e| SuiError::ObjectSerializationError {
+                    error: e.to_string(),
+                }).unwrap();
+                debug!("@@@@@@@@@@@@@ json value: {} ", json_v);
+                debug!("@@@@@@@@@@@@@ object id : {} ", json_v["object_id"]["bytes"]);
+                debug!("@@@@@@@@@@@@@ non existent 1: {} ", json_v["object_haha"]);
+                debug!("@@@@@@@@@@@@@ non existent 2: {} ", json_v["object_id"]["haha"]);
+                // debug!("@@@@@@@@@@@@@ event struct: {:?} ", &s);
+                return;
+            }
+            _ => unreachable!(
+                "We called build_with_types on Struct type, should get a struct layout"
+            ),
+        }
+    }
     /// Check if we need to submit this transaction to consensus. We usually do, unless (i) we already
     /// processed the transaction and we can immediately return the effects, or (ii) we already locked
     /// all shared-objects of the transaction and can (re-)attempt execution.
@@ -604,7 +662,7 @@ impl AuthorityState {
     ) -> Result<
         (
             VecDeque<UpdateItem>,
-            // Should subscribe, computed start, computed end
+            // Should subscribe, computer start, computed end
             (bool, TxSequenceNumber, TxSequenceNumber),
         ),
         SuiError,
@@ -733,6 +791,7 @@ impl AuthorityState {
             move_vm,
             database: store.clone(),
             indexes,
+            module_cache: None,
             _checkpoints: checkpoints,
             batch_channels: tx,
             batch_notifier: Arc::new(
@@ -742,25 +801,28 @@ impl AuthorityState {
             consensus_guardrail: AtomicUsize::new(0),
             metrics: &METRICS,
         };
-
-        state
+        // Option<SyncModuleCache<WeakWrapper<AuthorityState>>>,
+        let arc_state = Arc::new(state);
+        let module_cache = SyncModuleCache::new(WeakWrapper(Arc::downgrade(&arc_state)));
+        state.module_cache.replace(module_cache);
+        arc_state
             .init_batches_from_database()
             .expect("Init batches failed!");
 
         // If a checkpoint store is present, ensure it is up-to-date with the latest
         // batches.
-        if let Some(checkpoint) = &state._checkpoints {
+        if let Some(checkpoint) = arc_state._checkpoints {
             let next_expected_tx = checkpoint.lock().next_transaction_sequence_expected();
 
             // Get all unprocessed checkpoints
-            for (_seq, batch) in state
+            for (_seq, batch) in arc_state
                 .database
                 .batches
                 .iter()
                 .skip_to(&next_expected_tx)
                 .expect("Seeking batches should never fail at this point")
             {
-                let transactions: Vec<(TxSequenceNumber, TransactionDigest)> = state
+                let transactions: Vec<(TxSequenceNumber, TransactionDigest)> = arc_state
                     .database
                     .executed_sequence
                     .iter()
@@ -792,14 +854,6 @@ impl AuthorityState {
 
     async fn get_object(&self, object_id: &ObjectID) -> Result<Option<Object>, SuiError> {
         self.database.get_object(object_id)
-    }
-
-    pub async fn get_framework_object_ref(&self) -> SuiResult<ObjectRef> {
-        Ok(self
-            .get_object(&SUI_FRAMEWORK_ADDRESS.into())
-            .await?
-            .expect("framework object should always exist")
-            .compute_object_reference())
     }
 
     pub async fn get_object_info(&self, object_id: &ObjectID) -> Result<ObjectRead, SuiError> {
@@ -1088,6 +1142,14 @@ impl ModuleResolver for AuthorityState {
 
     fn get_module(&self, module_id: &ModuleId) -> Result<Option<Vec<u8>>, Self::Error> {
         self.database.get_module(module_id)
+    }
+}
+
+impl ModuleResolver for WeakWrapper<AuthorityState> {
+    type Error = SuiError;
+
+    fn get_module(&self, module_id: &ModuleId) -> Result<Option<Vec<u8>>, Self::Error> {
+        self.0.upgrade().ok_or_else(|| SuiError::AuthorityStateDropped)?.get_module(module_id)
     }
 }
 

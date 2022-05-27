@@ -21,7 +21,7 @@ use tokio::sync::mpsc::Sender;
 use sui_types::messages_checkpoint::CheckpointRequest;
 use sui_types::messages_checkpoint::CheckpointResponse;
 
-use tracing::{info, Instrument};
+use tracing::{info, Instrument, debug};
 
 #[cfg(test)]
 #[path = "unit_tests/server_tests.rs"]
@@ -179,6 +179,7 @@ impl Validator for AuthorityServer {
         &self,
         request: tonic::Request<CertifiedTransaction>,
     ) -> Result<tonic::Response<TransactionInfoResponse>, tonic::Status> {
+        debug!("@@@@@@@@@@ confirmation_transaction");
         let mut transaction = request.into_inner();
 
         let mut obligation = VerificationObligation::default();

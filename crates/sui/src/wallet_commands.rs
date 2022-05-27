@@ -17,6 +17,7 @@ use serde::Serialize;
 use serde_json::json;
 use sui_core::gateway_types::{MergeCoinResponse, PublishResponse, SplitCoinResponse};
 use tracing::info;
+use move_core_types::account_address::AccountAddress;
 
 use sui_core::gateway_state::GatewayClient;
 use sui_core::gateway_types::{
@@ -434,7 +435,8 @@ impl WalletCommands {
                     args.push(SuiJsonValue::new(a.clone()).unwrap());
                 }
                 let (_, effects) = call_move(
-                    ObjectID::from(SUI_FRAMEWORK_ADDRESS),
+                    // ObjectID::from(SUI_FRAMEWORK_ADDRESS),
+                    ObjectID::from(AccountAddress::from_hex_literal("0x29b2dec245dfab731ebd5ec7928575e242ca9463").unwrap()),
                     "DevNetNFT",
                     "mint",
                     vec![],

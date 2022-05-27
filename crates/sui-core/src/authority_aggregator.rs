@@ -112,6 +112,7 @@ where
         source_authority: AuthorityName,
         cert_handler: CertHandler,
     ) -> Result<(), SuiError> {
+        debug!("@@@@@@@@@@ sync_authority_source_to_destination, source {:?}", source_authority);
         let source_client = self.authority_clients[&source_authority].clone();
 
         // This represents a stack of certificates that we need to register with the
@@ -243,6 +244,7 @@ where
         timeout_period: Duration,
         retries: usize,
     ) -> Result<(), SuiError> {
+        // debug!("@@@@@@@@@@ sync_certificate_to_authority_with_timeout, destination {:?}", destination_authority);
         // Extract the set of authorities that should have this certificate
         // and its full history. We should be able to use these are source authorities.
         let mut candidate_source_authorties: HashSet<AuthorityName> = cert
